@@ -104,6 +104,7 @@ typedef struct ATTRIBUTE_PACKED
 	sHB_PacketHeader Header;
 	U16 CommandCode;
 	U32 DeviceSerialNb;
+    U8 ID;
 	U16 CRC16;
 } sHB_PacketResponseAssignID;
 

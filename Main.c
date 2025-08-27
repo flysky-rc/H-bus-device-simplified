@@ -70,7 +70,11 @@ static void HB_UART_ReceiveCallback(U32 NbReceivedBytes)
 #ifdef SLIP_EN	
     NbReceivedBytes = parse_data( APP_RXBuffer, NbReceivedBytes, APP_RXBuffer1 );
     
-    if( !NbReceivedBytes ) return;
+    if( !NbReceivedBytes ) 
+    {
+        HB_StartReception();
+        return;
+    }
 	pCommandPacket=(const sHB_Packet *)APP_RXBuffer1;
 #else    
     pCommandPacket=(const sHB_Packet *)APP_RXBuffer;
@@ -128,9 +132,10 @@ static void HB_UART_ReceiveCallback(U32 NbReceivedBytes)
                         ibus_lite_timeout = GET_TICK_1MS();
 						APP_ResponsePacket.Header.Length=sizeof(sHB_PacketResponseAssignID);
 						APP_ResponsePacket.Header.PacketType=HB_PT_RESPONSE_FROM_DEVICE;
-						APP_ResponsePacket.Header.DeviceID=APP_HBDeviceID;
+						APP_ResponsePacket.Header.DeviceID=HB_DEVICE_ID_BROADCAST;
 						APP_ResponsePacket.ResponseAssignID.CommandCode=HB_CC_ASSIGN_ID;
 						APP_ResponsePacket.ResponseAssignID.DeviceSerialNb=APP_HBSerialNb;
+                        APP_ResponsePacket.ResponseAssignID.ID = APP_HBDeviceID;
 						break;
 					case HB_CC_TEST:
 					{
