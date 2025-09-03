@@ -43,6 +43,8 @@ static eHB_State APP_HBState;
 static U32 APP_HBSerialNb;
 static U8 APP_HBDeviceID;
 
+static U32 HeartBeatNum;
+
 static const sUART_Config APP_UARTConfig={
 	.BitDuration=UART_BAUDRATE_TO_BIT_DURATION(HB_UART_SPEED),
 	.Parity=UART_PARITY_NONE,
@@ -63,6 +65,11 @@ U16 rx_test_cnt = 0;
 U16 rx_test_len = 0;
 U32  enum_delay;
 sHB_PacketResponse  test;
+U32  sensor_cnt;
+U8 receiver_state;
+
+U8 sensor_data[29]="123456789abcdefghijklmnopqrst"; //TEST
+
 
 static void HB_UART_ReceiveCallback(U32 NbReceivedBytes)
 {
@@ -79,7 +86,7 @@ static void HB_UART_ReceiveCallback(U32 NbReceivedBytes)
 #else    
     pCommandPacket=(const sHB_Packet *)APP_RXBuffer;
 #endif
-	APP_ResponsePacket.Header.Length=0;
+	APP_ResponsePacket.Header.Length=0; //为0就是不回复
 	if (NbReceivedBytes>=sizeof(sHB_PacketCommandMin) &&
 		NbReceivedBytes<=sizeof(sHB_PacketCommandMax) &&
 		pCommandPacket->Header.Length==NbReceivedBytes &&
@@ -116,8 +123,7 @@ static void HB_UART_ReceiveCallback(U32 NbReceivedBytes)
 						GPIO_EnablePA1Interrupt(HB_RXActivityCallback);
 						break;
 					case HB_CC_ASSIGN_ID:
-						if ( //APP_HBState!=HB_S_ENUMERATING ||
-							pCommandPacket->CommandEnumerate.DeviceSerialNb!=APP_HBSerialNb)
+						if ( pCommandPacket->CommandEnumerate.DeviceSerialNb!=APP_HBSerialNb )
 						{
 							break;
 						}
@@ -137,17 +143,32 @@ static void HB_UART_ReceiveCallback(U32 NbReceivedBytes)
 						APP_ResponsePacket.ResponseAssignID.DeviceSerialNb=APP_HBSerialNb;
                         APP_ResponsePacket.ResponseAssignID.ID = APP_HBDeviceID;
 						break;
-					case HB_CC_TEST:
+					case HB_CC_HEARTBEAT:
+					{
+
+						if ( (APP_HBState!=HB_S_CONFIGURED) || (APP_HBDeviceID !=pCommandPacket->Header.DeviceID) )
+							break;
+                     
+                        U32 idx = pCommandPacket->CommandHeartBeat.HeartBeatNum;
+                        if( HeartBeatNum >= idx )
+                        {
+                            ibus_lite_timeout = 0;
+                        }
+                        else
+                        {
+                            ibus_lite_timeout = GET_TICK_1MS();
+                            HeartBeatNum = idx;
+                        }
+                        break;
+					}
+                    case HB_CC_TEST:
 					{
 						U32 DataLength;
 
-						if (APP_HBState!=HB_S_CONFIGURED)
+						if ((APP_HBState!=HB_S_CONFIGURED) || ( APP_HBDeviceID !=pCommandPacket->Header.DeviceID ) )
 							break;
-                         if( APP_HBDeviceID !=pCommandPacket->Header.DeviceID ) //不是发给自己的数据
-                             break;
 
                         ibus_lite_timeout = GET_TICK_1MS();
-                         
 						DataLength=pCommandPacket->Header.Length-sizeof(sHB_PacketCommandMin);
 						APP_ResponsePacket.Header.Length=sizeof(sHB_PacketResponseMin)+DataLength;
 						APP_ResponsePacket.Header.PacketType=HB_PT_RESPONSE_FROM_DEVICE;
@@ -158,7 +179,6 @@ static void HB_UART_ReceiveCallback(U32 NbReceivedBytes)
                         rx_test_len +=DataLength;
                          
                         memcpy(APP_ResponsePacket.Response.Arguments,pCommandPacket->Command.Arguments,DataLength);
-                        
 						break;
 					}
 				}
@@ -172,24 +192,39 @@ static void HB_UART_ReceiveCallback(U32 NbReceivedBytes)
 				const U8 *pSourceChannelsData;
 				U16 *pTargetChannel;
 				
-				pSourceChannelsData=(pCommandPacket->Header.PacketType==HB_PT_CHANNELS_DATA)?pCommandPacket->ChannelsData.ChannelsData:pCommandPacket->ChannelsDataWithCommand.ChannelsDataAndArguments;
+				pSourceChannelsData=(const U8 *)pCommandPacket->ChannelsData.ChannelsData;
 				pTargetChannel=APP_Channels;
 				NbRemainingChannels=pCommandPacket->Header.NbChannels;
 				while (1)
 				{
-					*pTargetChannel=SYS_LoadUShort(pSourceChannelsData) & 0x0FFF;
-					pSourceChannelsData++;
-					pTargetChannel++;
-					NbRemainingChannels--;
-					if (NbRemainingChannels==0)
-						break;
-					*pTargetChannel=SYS_LoadUShort(pSourceChannelsData) >> 4;
-					pSourceChannelsData+=2;
-					pTargetChannel++;
+                    U16 value =*pSourceChannelsData++;
+                    
+                    value |= (*pSourceChannelsData++)<<8;
+                    
+                    
+					*pTargetChannel++ = value;
+					
 					NbRemainingChannels--;
 					if (NbRemainingChannels==0)
 						break;
 				}
+                receiver_state = *pSourceChannelsData++;
+                U8 command_code = *pSourceChannelsData++;
+                U8 rx_id = *pSourceChannelsData++;
+                U8 len_max = *pSourceChannelsData++;
+                
+                if( (HB_PT_CHANNELS_DATA_WITH_COMMAND == pCommandPacket->Header.PacketType) && (rx_id == APP_HBDeviceID) && (3==command_code) )
+//                if( (HB_PT_CHANNELS_DATA_WITH_COMMAND == pCommandPacket->Header.PacketType) && (rx_id == 1) && (3==command_code) )    
+                {
+                    sensor_cnt++;
+
+                    APP_ResponsePacket.Header.Length= sizeof(sHB_PacketResponse)+sizeof(sensor_data)+2;
+                    APP_ResponsePacket.Header.PacketType=HB_PT_RESPONSE_FROM_DEVICE;
+                    APP_ResponsePacket.Header.DeviceID=APP_HBDeviceID;
+                    APP_ResponsePacket.Response.CommandCode=HB_CC_SENSOR;
+                    memcpy(APP_ResponsePacket.Response.Arguments,sensor_data, sizeof(sensor_data) );
+                }
+
 				break;
 			}
 		}
@@ -323,6 +358,8 @@ int main(void)
                     LED_SetPattern(&LED_RESET);
                 }
                 APP_HBState = HB_S_RESET;
+                HeartBeatNum = 0;
+                APP_HBDeviceID=0;
             }
         }
         
@@ -334,6 +371,8 @@ int main(void)
                 LED_SetPattern(&LED_RESET);
             }
             APP_HBState=HB_S_RESET;
+            HeartBeatNum = 0;
+            APP_HBDeviceID=0;
         }
 	}
 }

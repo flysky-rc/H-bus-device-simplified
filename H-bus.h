@@ -11,10 +11,13 @@
 #define HB_CHANNELS_DATA_TIME_GAP_US          500 // Time gap after HobbyWing channels data in microseconds
 #define HB_DEVICE_ID_BROADCAST                0x3F
 
-#define HB_CC_TEST      0x0483
+
 #define HB_CC_RESET     0x0480
 #define HB_CC_ENUMERATE 0x0481
 #define HB_CC_ASSIGN_ID 0x0482
+#define HB_CC_HEARTBEAT 0x0483
+#define HB_CC_TEST      0x0484
+#define HB_CC_SENSOR    0x0200
 
 typedef enum
 {
@@ -60,6 +63,14 @@ typedef struct ATTRIBUTE_PACKED
     U8 ID;
 	U16 CRC16;
 } sHB_PacketCommandAssignID;
+
+typedef struct ATTRIBUTE_PACKED
+{
+	sHB_PacketHeader Header;
+	U16 CommandCode;
+	U32 HeartBeatNum;
+	U16 CRC16;
+} sHB_PacketCommandHeartBeat;
 
 typedef struct ATTRIBUTE_PACKED
 {
@@ -111,7 +122,7 @@ typedef struct ATTRIBUTE_PACKED
 typedef struct ATTRIBUTE_PACKED
 {
 	sHB_PacketHeader Header;
-	U8 ChannelsData[];
+	U16 ChannelsData[];
 } sHB_PacketChannelsData;
 
 typedef struct ATTRIBUTE_PACKED
@@ -136,12 +147,17 @@ typedef struct ATTRIBUTE_PACKED
 	U16 CRC16;
 } sHB_PacketChannelsDataWithCommandMax;
 
+
+
+
+
 typedef union
 {
 	sHB_PacketHeader Header;
 	sHB_PacketCommand Command;
 	sHB_PacketCommandMin CommandMin;
 	sHB_PacketCommandAssignID CommandEnumerate;
+    sHB_PacketCommandHeartBeat CommandHeartBeat;
 	sHB_PacketCommandMax CommandMax;
 	sHB_PacketResponse Response;
 	sHB_PacketResponseMin ResponseMin;
