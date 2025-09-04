@@ -69,7 +69,10 @@ U32  sensor_cnt;
 U8 receiver_state;
 
 U8 sensor_data[29]="123456789abcdefghijklmnopqrst"; //TEST
-
+U8 volatile ASSIGN_ID_cnt;
+U8 volatile ENUMERATING_cnt;
+U8 volatile ASSIGN_ID_cnt;
+U8 volatile ENUMERATING_cnt1;
 
 static void HB_UART_ReceiveCallback(U32 NbReceivedBytes)
 {
@@ -111,7 +114,7 @@ static void HB_UART_ReceiveCallback(U32 NbReceivedBytes)
 						{
 							break;
 						}
-                        
+                        ENUMERATING_cnt1++;
                         enum_delay = 1000+(SYS_GetSimpleRandomNumber()%HB_ENUMERATION_NB_TIME_SLOTS)*HB_ENUMERATION_SLOT_TIME;
                         
 						HB_TIM_SetNextCompareIRQTimeFromNow( enum_delay, HB_TIM_TimerCompareIRQHandler);
@@ -127,6 +130,8 @@ static void HB_UART_ReceiveCallback(U32 NbReceivedBytes)
 						{
 							break;
 						}
+                        
+                        ASSIGN_ID_cnt++;
 						APP_HBDeviceID=pCommandPacket->CommandEnumerate.ID&0x3F;
                         
                         if( APP_HBState!=HB_S_CONFIGURED )
@@ -150,7 +155,7 @@ static void HB_UART_ReceiveCallback(U32 NbReceivedBytes)
 							break;
                      
                         U32 idx = pCommandPacket->CommandHeartBeat.HeartBeatNum;
-                        if( HeartBeatNum >= idx )
+                        if( HeartBeatNum >= idx && HeartBeatNum)
                         {
                             ibus_lite_timeout = 0;
                         }
@@ -266,13 +271,14 @@ static void HB_UART_TransmitCallback(void)
 	return;
 }
 
+
 static void HB_TIM_TimerCompareIRQHandler(void)
 {
     if( APP_HBState!=HB_S_ENUMERATING )
     {
         LED_SetPattern(&LED_ENUMERATING);
     }
-    
+    ENUMERATING_cnt++;
     APP_HBState=HB_S_ENUMERATING;
 	GPIO_DisablePA1Interrupt();
 	HB_UART_TransmitStart();
@@ -348,6 +354,18 @@ int main(void)
         if (APP_HBState !=HB_S_ENUMERATING)
         {
             enumerating_start_time = GET_TICK_1MS();
+            
+            if(  GET_TICK_1MS() - ibus_lite_timeout > 3000 )
+            {
+                if( APP_HBState !=HB_S_RESET )
+                {
+                    LED_SetPattern(&LED_RESET);
+                }
+                ibus_lite_timeout = GET_TICK_1MS();
+                APP_HBState=HB_S_RESET;
+                HeartBeatNum = 0;
+                APP_HBDeviceID=0;
+            }
         }
         else
         {
@@ -363,16 +381,6 @@ int main(void)
             }
         }
         
-        if(  GET_TICK_1MS() - ibus_lite_timeout > 10000 )
-        {
-            ibus_lite_timeout = GET_TICK_1MS();
-            if( APP_HBState !=HB_S_RESET )
-            {
-                LED_SetPattern(&LED_RESET);
-            }
-            APP_HBState=HB_S_RESET;
-            HeartBeatNum = 0;
-            APP_HBDeviceID=0;
-        }
+
 	}
 }
